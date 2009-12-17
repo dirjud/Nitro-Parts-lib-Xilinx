@@ -72,14 +72,13 @@ class t_DCM
   }
   
   inline bool posedge() {
-    if(!m_locked) {
-      if(!m_posedge1) {
-        m_posedge1 = main_time;
-      } else if(!m_posedge2) {
-        m_posedge2 = main_time;
-        m_locked = 1;
-        m_T = m_posedge2 - m_posedge1;
-      }
+    if(m_locked < 10) {
+      m_locked++;
+
+      m_posedge1 = m_posedge2;
+      m_posedge2 = main_time;
+      m_T = m_posedge2 - m_posedge1;
+      printf("m_T=%d\n", m_T);
     }
     return true;
   }
@@ -97,7 +96,7 @@ class t_DCM
     return ((main_time * 2 / m_T / d) % 2);
   }
   inline bool locked(bool x) {
-    return m_locked;
+    return m_locked >= 10;
   }
    
 
