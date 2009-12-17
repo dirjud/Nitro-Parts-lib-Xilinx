@@ -78,7 +78,8 @@ class t_DCM
       m_posedge1 = m_posedge2;
       m_posedge2 = main_time;
       m_T = m_posedge2 - m_posedge1;
-      printf("m_T=%d\n", m_T);
+      if(m_T == 0) m_T = 10;
+//      printf("m_T=%d\n", m_T);
     }
     return true;
   }
