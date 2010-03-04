@@ -16,7 +16,7 @@ module IDDR2 (Q0, Q1, C0, C1, CE, D, R, S);
 	 Q0 <= 0;
       end else if(S) begin
 	 Q0 <= 1;
-      end else begin
+      end else if(CE) begin
 	 Q0 <= D;
       end
    end
@@ -26,7 +26,7 @@ module IDDR2 (Q0, Q1, C0, C1, CE, D, R, S);
 	 Q1 <= 0;
       end else if(S) begin
 	 Q1 <= 1;
-      end else begin
+      end else if(CE) begin
 	 Q1 <= D;
       end
    end
