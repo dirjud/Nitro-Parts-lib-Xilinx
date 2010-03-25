@@ -3,7 +3,8 @@ module DCM_SP
        parameter CLKFX_DIVIDE   = 1,
        parameter CLKDV_DIVIDE   = 2,
        parameter CLKIN_PERIOD   = 10,
-       parameter CLK_FEEDBACK   = 0
+       parameter CLK_FEEDBACK   = 0,
+       parameter CLKOUT_PHASE_SHIFT = 0
        )
    (
     CLK0, CLK180, CLK270, CLK2X, CLK2X180, CLK90,
@@ -18,6 +19,7 @@ output CLK0, CLK180, CLK270, CLK2X, CLK2X180, CLK90;
 output CLKDV, CLKFX, CLKFX180, LOCKED, PSDONE;
 output [7:0] STATUS;
 
+   assign STATUS = 0;
    
    assign CLK0 = CLKIN;
    assign CLK180 = ~CLKIN;
