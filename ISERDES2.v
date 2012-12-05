@@ -36,11 +36,11 @@ module ISERDES2 (
   output DFB;
   output FABRICOUT;
   output INCDEC;
-  output Q1;
-  output Q2;
-  output Q3;
-  output Q4;
-  output SHIFTOUT;
+  output reg Q1;
+  output reg Q2;
+  output reg Q3;
+  output reg Q4;
+  output reg SHIFTOUT;
   output VALID;
 
   input BITSLIP;
@@ -67,19 +67,21 @@ module ISERDES2 (
 //  assign Q2 = 0;
 //  assign Q3 = 0;
 //  assign Q4 = 0;
-  assign SHIFTOUT = 0;
-  assign VALID = 0;
+   assign VALID = 0;
 
    reg [3:0] srA;
    wire      Din = (SERDES_MODE == "SLAVE") ? SHIFTIN : D;
    
    always @(posedge CLK0 or posedge CLK1) begin
-      srA <= { Din, srA[2:0] };
+      srA <= { Din, srA[3:1] };
+      SHIFTOUT <= srA[0];
+      if(IOCE) begin
+	 Q1 <= srA[0];
+	 Q2 <= srA[1];
+	 Q3 <= srA[2];
+	 Q4 <= srA[3];
+      end
    end
-   assign Q1 = srA[0];
-   assign Q2 = srA[1];
-   assign Q3 = srA[2];
-   assign Q4 = srA[3];
    
    
 endmodule // ISERDES2

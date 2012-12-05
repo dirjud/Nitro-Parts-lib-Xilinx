@@ -15,26 +15,27 @@ module BUFIO2 (DIVCLK, IOCLK, SERDESSTROBE, I);
    reg 	     div_clk;
    reg 	     serdes_strobe;
    wire [2:0] next_div_count = div_count + 1;
+
+   /* verilator lint_off WIDTH */
+   wire [2:0] divider = (USE_DOUBLER == "FALSE") ? DIVIDE : DIVIDE/2;
    
    always @(posedge I) begin
-      /* verilator lint_off WIDTH */
-      if(next_div_count == DIVIDE) begin
+      if(next_div_count == divider) begin
 	 div_clk <= 1;
 	 serdes_strobe <= 1;
 	 div_count <= 0;
       end else begin
 	 serdes_strobe <= 0;
 	 div_count <= next_div_count;
-	 if(next_div_count >= (DIVIDE/2)) begin
+	 if(next_div_count >= divider >> 1) begin
 	    div_clk <= 0;
 	 end
       end
-      /* verilator lint_on WIDTH */
    end // always @ (posedge I)
-
-   assign DIVCLK = (DIVIDE == 1) ? I : div_clk;
-   assign SERDESSTROBE = (DIVIDE == 1) ? 1'b0 : serdes_strobe;
-   assign IOCLK = I;
+   assign DIVCLK = (DIVIDE == 1 || DIVIDE_BYPASS == "TRUE") ? I : div_clk;
+   assign SERDESSTROBE = (DIVIDE == 1) ? 1'b0 : serdes_strobe & I;
+   assign IOCLK = (I_INVERT == "FALSE") ? I : !I;
+   /* verilator lint_on WIDTH */
    
 endmodule // BUFIO2
 
