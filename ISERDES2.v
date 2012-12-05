@@ -40,7 +40,7 @@ module ISERDES2 (
   output reg Q2;
   output reg Q3;
   output reg Q4;
-  output reg SHIFTOUT;
+  output SHIFTOUT;
   output VALID;
 
   input BITSLIP;
@@ -74,7 +74,6 @@ module ISERDES2 (
    
    always @(posedge CLK0 or posedge CLK1) begin
       srA <= { Din, srA[3:1] };
-      SHIFTOUT <= srA[0];
       if(IOCE) begin
 	 Q1 <= srA[0];
 	 Q2 <= srA[1];
@@ -83,5 +82,6 @@ module ISERDES2 (
       end
    end
    
+   assign SHIFTOUT = srA[0];
    
 endmodule // ISERDES2
