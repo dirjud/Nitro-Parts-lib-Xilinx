@@ -27,7 +27,7 @@ module BUFIO2 (DIVCLK, IOCLK, SERDESSTROBE, I);
       end else begin
 	 serdes_strobe <= 0;
 	 div_count <= next_div_count;
-	 if(next_div_count >= divider >> 1) begin
+	 if(next_div_count == divider >> 1) begin
 	    div_clk <= 0;
 	 end
       end
