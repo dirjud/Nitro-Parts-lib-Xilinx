@@ -79,6 +79,8 @@ endgenerate
  
   assign LOCKED = lock_2x && lock_fx;
 
+`else
+ $error ("Unimplemented DCM_SP for non verilator sim.  Should use original Xilinx sim libs not this library." );
 `endif
    
 endmodule
