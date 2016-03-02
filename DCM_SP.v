@@ -66,6 +66,7 @@ generate
      assign lock_fx=lock_2x;
    end else begin
      PLL_sim
+        #(.PLL_NAME("DCM_SP"))
      dcm_pll (
         .input_clk( CLKIN ),
         .output_clk ( CLKFX ),
