@@ -12,7 +12,7 @@ module IOBUF (O, IO, I, T);
     inout  IO;
     input  I, T;
 
-   assign IO = T ? I : 1'bz;
+   assign IO = ~T ? I : 1'bz;
    assign O = IO;
     
 endmodule
