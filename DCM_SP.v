@@ -41,7 +41,9 @@ output [7:0] STATUS;
       .output_clk ( clk2x ),
       .pll_mult ( 2 ),
       .pll_div  ( 1 ),
-      .locked ( lock_2x )
+      .locked ( lock_2x ),
+	  .debug(0)
+	  
    );
    reg clk90;
    reg [1:0] cnt;
