@@ -1,3 +1,53 @@
+// $Header: /devl/xcs/repo/env/Databases/CAEInterfaces/verunilibs/data/stan/ISERDES2.v,v 1.26 2010/07/14 17:46:29 robh Exp $
+//////////////////////////////////////////////////////
+//  Copyright (c) 2008 Xilinx Inc.
+//  All Right Reserved.
+//////////////////////////////////////////////////////
+//
+//   ____   ___
+//  /   /\/   / 
+// /___/  \  /     Vendor      : Xilinx 
+// \  \    \/      Version : 10.1
+//  \  \           Description : Xilinx Functional Simulation Library Component
+//  /  /                         Source Synchronous Input Deserializer for the Spartan Series
+// /__/   /\       Filename    : ISERDES2.v
+// \  \  /  \                     
+//  \__\/\__ \                   
+//
+//  Revision:      Date:  Comment
+//       1.0:  10/10/07:  Initial version.
+//       1.1:  02/29/08:  Changed name to ISERDES2
+//                        removed mc_ from signal names
+//       1.2:  08/15/08:  remove DQIP, DQIN per yml
+//                        IR478802 force unused outputs 0 based on DATA_WIDTH
+//                        IR478802 force outputs X for 1 clk after BITSLIP 
+//       1.3:  08/22/08:  IR480003 Changed serialized input to DDLY by default
+//                        add param to select D if desired
+//       1.4:  08/27/08:  Remove DDLY, DDLY2, use D input per IO SOLN TEAM
+//                        IR481178 - phase detector moved to master
+//       1.5:  09/19/08:  Fix up Phase Detector
+//       1.6:  09/30/08:  IR489891 Change ci_int reset
+//       1.7:  10/13/08:  IR492154 Add CE0 as enable on FFs
+//       1.8:  11/05/08:  add CE0 as enable on bitslip_counter
+//                        fixup input/output delays
+//       1.9:  11/13/08:  update specify block
+//       1.10: 11/20/08:  Connect CFB0, CFB1, DFB
+//       1.11: 12/11/08:  delay internal ioce by 1 ioclk
+//       1.12: 01/06/09:  CR502438 sync bitslip couter to clk_int
+//       1.13: 02/12/09:  CR507431 Input shift reg and bitslip changes to match HW
+//       1.14: 02/26/09:  CR510115 Changes for verilog vhdl sim differences
+//       1.15: 04/22/09:  CR519002 change to match HW phase detector function
+//                        CR519029 change to match HW bitslip function
+//       1.16: 06/03/09:  CR523941 update phase detector logic
+//                        CR523212 simprim IO update and match unisim
+//       1.17: 07/08/09:  CR524403 Add NONE to valid serdes_mode values
+//       1.18: 11/16/09:  CR539199 Reset logic on bitslip counter. GSR vs RST.
+//       1.19: 06/30/10:  CR567507, 567508 Connect D to FABRICOUT
+// End Revision
+///////////////////////////////////////////////////////
+
+`timescale 1 ps / 1 ps 
+
 module ISERDES2 (
   CFB0,
   CFB1,
@@ -36,10 +86,10 @@ module ISERDES2 (
   output DFB;
   output FABRICOUT;
   output INCDEC;
-  output reg Q1;
-  output reg Q2;
-  output reg Q3;
-  output reg Q4;
+  output Q1;
+  output Q2;
+  output Q3;
+  output Q4;
   output SHIFTOUT;
   output VALID;
 
@@ -53,35 +103,422 @@ module ISERDES2 (
   input RST;
   input SHIFTIN;
 
-//  pulldown( BITSLIP );
-//  pulldown( RST );
-//  pullup( CE0 );
-//  pullup( IOCE );
-//
-  assign CFB0 = 0;
-  assign CFB1 = 0;
-  assign DFB = 0;
-  assign FABRICOUT = 0;
-  assign INCDEC = 0;
-//  assign Q1 = 0;
-//  assign Q2 = 0;
-//  assign Q3 = 0;
-//  assign Q4 = 0;
-   assign VALID = 0;
+  pulldown( BITSLIP );
+  pulldown( RST );
+  pullup( CE0 );
+  pullup( IOCE );
 
-   reg [3:0] srA;
-   wire      Din = (SERDES_MODE == "SLAVE") ? SHIFTIN : D;
-   
-   always @(posedge CLK0 or posedge CLK1) begin
-      srA <= { Din, srA[3:1] };
-      if(IOCE) begin
-	 Q1 <= srA[0];
-	 Q2 <= srA[1];
-	 Q3 <= srA[2];
-	 Q4 <= srA[3];
+  reg BITSLIP_ENABLE_BINARY = 1'b0;
+  reg DATA_RATE_BINARY = 1'b0;
+  reg INTERFACE_TYPE_BINARY = 1'b0;
+  reg SERDES_MODE_BINARY = 1'b0;
+  reg [7:0] DATA_WIDTH_BINARY = 8'h00;
+
+  reg [3:0] qout_en = 4'b0;
+
+// FF outputs
+  reg [3:0] qs, qc, qt, qg;
+
+// CE signals
+  wire ci_int;
+  reg ci_int_m=0;
+  reg ci_int_s=0;
+  reg ci_int_m_sync=0;
+  reg ci_int_s_sync=0;
+  reg ioce_int=0;
+  reg [6:0] io_ce_dly = 7'b0;
+ /* verilator lint_off WIDTH */
+ reg [2:0] bitslip_counter = 8 - DATA_WIDTH + 1;
+
+// Phase detector signals;
+  reg sample = 0;
+  reg  E3 = 0;
+  reg  event_occured = 0, incdec_reg = 0, valid_capture = 0, incdec_capture = 0;
+  reg[3:0] edge_counter = 4'h0;
+  reg [1:0] drp_event = 2'b10;  // input from DRP
+  reg plus1 = 1'b0;            // input from DRP
+  reg gvalid = 1'b1;           // input from DRP
+  reg pre_event;
+  reg en_lower_baud = 1'b0;   // where ever this is coming from
+  reg e3_f;
+  reg incr_d;
+  reg incdec_latch;       // it is a full reg, just the same name as schematic
+
+
+// Attribute settings
+  reg cascade_in_int = 0;
+  reg [1:0] qmuxSel_int = 0;
+
+// Internal Clock
+  reg clk0_int = 0;
+  reg clk1_int = 0;
+  wire clk_int;
+
+// Other signals
+  reg attr_err_flag = 0;
+  reg SERDES_MODE_err_flag = 0;
+  reg DATA_WIDTH_err_flag = 0;
+  reg DATA_RATE_err_flag = 0;
+  reg BITSLIP_ENABLE_err_flag = 0;
+  reg INTERFACE_TYPE_err_flag = 0;
+
+  wire CFB0_OUT;
+  wire CFB1_OUT;
+  wire DFB_OUT;
+  wire FABRICOUT_OUT;
+  reg INCDEC_OUT=0;
+  reg Q1_OUT=0;
+  reg Q2_OUT=0;
+  reg Q3_OUT=0;
+  reg Q4_OUT=0;
+  reg SHIFTOUT_OUT=0;
+  reg VALID_OUT=0;
+
+  wire BITSLIP_IN;
+  wire CE0_IN;
+  wire CLK0_IN;
+  wire CLK1_IN;
+  wire CLKDIV_IN;
+  wire D_IN;
+  wire IOCE_IN;
+  wire RST_IN;
+  wire SHIFTIN_IN;
+    
+//----------------------------------------------------------------------
+//------------------------  Output Ports  ------------------------------
+//----------------------------------------------------------------------
+  assign #(out_delay) CFB0 = CFB0_OUT;
+  assign #(out_delay) CFB1 = CFB1_OUT;
+  assign #(out_delay) DFB = DFB_OUT;
+  assign #(out_delay) FABRICOUT = FABRICOUT_OUT;
+  assign #(out_delay) INCDEC = INCDEC_OUT;
+  assign #(out_delay) Q1 = Q1_OUT;
+  assign #(out_delay) Q2 = Q2_OUT;
+  assign #(out_delay) Q3 = Q3_OUT;
+  assign #(out_delay) Q4 = Q4_OUT;
+  assign #(out_delay) SHIFTOUT = SHIFTOUT_OUT;
+  assign #(out_delay) VALID = VALID_OUT;
+//----------------------------------------------------------------------
+//------------------------   Input Ports  ------------------------------
+//----------------------------------------------------------------------
+  assign #(clk_delay) CLK0_IN = CLK0;
+  assign #(clk_delay) CLK1_IN = CLK1;
+  assign #(clk_delay) CLKDIV_IN = CLKDIV;
+  assign #(in_delay) BITSLIP_IN = BITSLIP;
+  assign #(in_delay) CE0_IN = CE0;
+  assign #(in_delay) D_IN = D;
+  assign #(in_delay) IOCE_IN = IOCE;
+  assign #(in_delay) RST_IN = RST;
+  assign #(in_delay) SHIFTIN_IN = SHIFTIN;
+
+  initial begin
+//-------------------------------------------------
+//------ INTERFACE_TYPE Check
+//-------------------------------------------------
+    if      (INTERFACE_TYPE == "NETWORKING")           qmuxSel_int = 2'b01;
+    else if (INTERFACE_TYPE == "NETWORKING_PIPELINED") qmuxSel_int = 2'b10;
+    else if (INTERFACE_TYPE == "RETIMED")              qmuxSel_int = 2'b11;
+    else begin
+       $display("Attribute Syntax Error : The attribute INTERFACE_TYPE on %s instance %m is set to %s.  Legal values for this attribute are NETWORKING, NETWORKING_PIPELINED or RETIMED", MODULE_NAME, INTERFACE_TYPE);
+       INTERFACE_TYPE_err_flag = 1;
+       end
+
+//-------------------------------------------------
+//------ BITSLIP_ENABLE Check
+//-------------------------------------------------
+      if      (BITSLIP_ENABLE == "TRUE")  BITSLIP_ENABLE_BINARY = 1'b1;
+      else if (BITSLIP_ENABLE == "FALSE") BITSLIP_ENABLE_BINARY = 1'b0;
+      else begin
+         $display("Attribute Syntax Error : The attribute BITSLIP_ENABLE on %s instance %m is set to %s.  Legal values for this attribute are TRUE or FALSE.", MODULE_NAME,  BITSLIP_ENABLE);
+         BITSLIP_ENABLE_err_flag = 1;
+         end
+
+//-------------------------------------------------
+//----- DATA_RATE  Check
+//-------------------------------------------------
+      if      (DATA_RATE == "SDR") DATA_RATE_BINARY = 1'b1;
+      else if (DATA_RATE == "DDR") DATA_RATE_BINARY = 1'b0;
+      else begin
+         $display("Attribute Syntax Error : The attribute DATA_RATE on %s instance %m is set to %s.  Legal values for this attribute are SDR or DDR", MODULE_NAME, DATA_RATE);
+         DATA_RATE_err_flag = 1;
+         end
+
+//-------------------------------------------------
+//----- DATA_WIDTH check
+//-------------------------------------------------
+      if      (DATA_WIDTH == 1) DATA_WIDTH_BINARY = 8'b10000000;
+      else if (DATA_WIDTH == 2) DATA_WIDTH_BINARY = 8'b11000000;
+      else if (DATA_WIDTH == 3) DATA_WIDTH_BINARY = 8'b11100000;
+      else if (DATA_WIDTH == 4) DATA_WIDTH_BINARY = 8'b11110000;
+      else if (DATA_WIDTH == 5) DATA_WIDTH_BINARY = 8'b11111000;
+      else if (DATA_WIDTH == 6) DATA_WIDTH_BINARY = 8'b11111100;
+      else if (DATA_WIDTH == 7) DATA_WIDTH_BINARY = 8'b11111110;
+      else if (DATA_WIDTH == 8) DATA_WIDTH_BINARY = 8'b11111111;
+      else begin
+         $display("Attribute Syntax Error : The attribute DATA_WIDTH on %s instance %m is set to %d.  Legal values for this attribute are 1, 2, 3, 4, 5, 6, 7 or 8.", MODULE_NAME, DATA_WIDTH);
+         DATA_WIDTH_err_flag = 1;
+         end
+
+//-------------------------------------------------
+//------ SERDES_MODE Check
+//-------------------------------------------------
+      if      (SERDES_MODE == "NONE") SERDES_MODE_BINARY = 1'b0;
+      else if (SERDES_MODE == "MASTER") SERDES_MODE_BINARY = 1'b0;
+      else if (SERDES_MODE == "SLAVE")  SERDES_MODE_BINARY = 1'b1;
+      else begin
+         $display("Attribute Syntax Error : The attribute SERDES_MODE on %s instance %m is set to %s.  Legal values for this attribute are NONE, MASTER or SLAVE", MODULE_NAME, SERDES_MODE);
+         SERDES_MODE_err_flag = 1;
+         end
+
+//-------------------------------------------------
+//------        Other Initializations      --------
+//-------------------------------------------------
+    if (DATA_WIDTH > 4 && SERDES_MODE == "SLAVE") 
+        cascade_in_int = 1;
+    else
+        cascade_in_int = 0;
+
+    if (SERDES_MODE == "SLAVE") 
+       qout_en = DATA_WIDTH_BINARY[3:0];
+    else
+       qout_en = DATA_WIDTH_BINARY[7:4];
+
+   if ( SERDES_MODE_err_flag || DATA_WIDTH_err_flag ||
+        DATA_RATE_err_flag || BITSLIP_ENABLE_err_flag ||
+        INTERFACE_TYPE_err_flag)
+      begin
+      attr_err_flag = 1;
+      $display("Attribute Errors detected : Simulation cannot continue. Exiting. \n");
+      $finish;
       end
-   end
+
+    end  // initial begin
+
+//-----------------------------------------------------------------------------------
+   parameter PLL_MULT = DATA_RATE == "DDR" ? 2 : 1;
+   PLL_sim PLL_sim(.input_clk(CLK0_IN),
+		   .output_clk(clk_int),
+		   .pll_mult(PLL_MULT),
+		   .pll_div(1),
+		   .locked(),
+		   .debug(0));
    
-   assign SHIFTOUT = srA[0];
+   //assign clk_int = clk0_int | clk1_int;
+
+    assign CFB0_OUT = CLK0_IN;
+    assign CFB1_OUT = CLK1_IN;
+    assign DFB_OUT = D_IN;
+    assign FABRICOUT_OUT = D_IN;
+
+// =====================
+// IOCE sample
+// =====================
+    always @(posedge clk_int)  begin
+          ioce_int <= IOCE_IN;
+       end
+
+// ======================
+//  Input Shift Register
+// ======================
+
+    always @(posedge clk_int) begin
+       if (CE0_IN) begin
+          if (cascade_in_int == 1'b1) qs[3] <= SHIFTIN_IN;
+          else qs[3] <= D_IN;
+       end
+       qs[2:0] <= qs[3:1];
+    end
+
+/*
+    Output Input sample if this is the Slave (used by the Phase Detector in Master)
+    Output S0 if this is the Master (used to cascade shift register in Slave)
+*/
+    generate
+      case (SERDES_MODE)
+         "NONE"   : always @(qs[0]) SHIFTOUT_OUT = qs[0];
+         "MASTER" : always @(qs[0]) SHIFTOUT_OUT = qs[0];
+         "SLAVE"  :  begin
+                       always @(posedge clk_int or posedge RST_IN) begin
+                           if(RST)
+                              sample = 0;
+                           else if (CE0_IN)
+                              sample = D_IN;
+                       end
+
+                       always @(sample) SHIFTOUT_OUT = sample;
+                     end
+      endcase
+    endgenerate
+
+// ======================
+//  Capture-In Registers
+// ======================
+    always @(posedge clk_int) begin
+      if(ci_int && CE0_IN) begin
+         qc <= qs;
+      end 
+    end
+
+// ===--===================
+//  Transfer Out Registers
+// ====--==================
+    always @(posedge clk_int) begin
+      if(ioce_int && CE0_IN) begin
+         qt <= qc;
+      end 
+    end
+
+// ======================
+//     GCLK Registers
+// ======================
+    always @(posedge CLKDIV_IN) begin
+      if(CE0_IN) begin
+         qg <= qt;
+      end 
+    end
+// ==================================================================
+//                     BITSLIP Function
+// ==================================================================
+    always @(posedge clk_int)  begin
+          io_ce_dly <= {ioce_int, io_ce_dly[6:1]};
+    end
    
+    always @(posedge CLKDIV_IN or posedge RST_IN) begin
+       if (RST_IN)
+           bitslip_counter <= 8 - DATA_WIDTH + 1;
+       else if(BITSLIP_ENABLE_BINARY && BITSLIP_IN) begin
+          if(bitslip_counter == 3'b111) 
+             bitslip_counter <= ~DATA_WIDTH + 1;
+          else
+             bitslip_counter <=  bitslip_counter + 1;
+          end  
+       end  
+// ==================================================================
+//                      Generate CaptureIn (CI) signal
+// ==================================================================
+    assign ci_int = bitslip_counter[2] ? ci_int_m_sync : ci_int_s_sync;
+    always @(ioce_int or io_ce_dly or bitslip_counter)
+      case(bitslip_counter[1:0])
+          2'b00:   ci_int_m = io_ce_dly[4];
+          2'b01:   ci_int_m = io_ce_dly[5];
+          2'b10:   ci_int_m = io_ce_dly[6];
+          2'b11:   ci_int_m = ioce_int;
+      endcase
+
+    always @(io_ce_dly or bitslip_counter)
+      case(bitslip_counter[1:0])
+          2'b00:   ci_int_s = io_ce_dly[0];
+          2'b01:   ci_int_s = io_ce_dly[1];
+          2'b10:   ci_int_s = io_ce_dly[2];
+          2'b11:   ci_int_s = io_ce_dly[3];
+      endcase
+
+    always @(posedge clk_int) begin
+      ci_int_m_sync <= ci_int_m;
+      ci_int_s_sync <= ci_int_s;
+      end
+
+              
+// ==================================================================
+//                     Phase Detector Function
+// ==================================================================
+    generate if ((SERDES_MODE == "MASTER") || (SERDES_MODE == "NONE"))
+    always @(SHIFTIN_IN) E3 = SHIFTIN_IN;
+          
+    always @(posedge clk_int or posedge RST_IN) begin
+       if(RST_IN) begin
+         event_occured  <= 0;
+         incdec_reg     <= 0;
+         edge_counter   <= 4'h0;
+         valid_capture  <= 0;
+         incdec_capture <= 0;
+         pre_event      <= 1'b0;
+         e3_f           <= 1'b0;
+         incr_d         <= 1'b0;
+         incdec_latch   <= 1'b0;
+       end
+       else if (CE0_IN) begin
+          e3_f <= E3;
+          pre_event     <= drp_event[1] ? (qs[3] ^ qs[2]) : (drp_event[0] ? (!qs[3] & qs[2]) : (qs[3] & !qs[2]));
+          event_occured <= pre_event & !((qs[3] ^ qs[2]) & en_lower_baud);
+
+          incr_d        <= qs[3] ~^ (plus1 ? e3_f : E3);
+          incdec_reg    <= incr_d;
+          incdec_latch  <= ioce_int ? (event_occured & incdec_reg) :
+                           ((event_occured & !edge_counter[0]) ? incdec_reg : incdec_latch);
+          edge_counter  <= ioce_int ? {3'h0,event_occured} :
+                           (event_occured ?
+                            (!(edge_counter[0] & (incdec_reg ^ incdec_latch)) ? {edge_counter[2:0],1'b1} : {1'b0,edge_counter[3:1]})
+                            : edge_counter);
+          if(ioce_int) begin
+              valid_capture  <= edge_counter[0];
+              incdec_capture <= incdec_latch;
+          end
+       end
+    end
+
+//
+// Re-time signals into GCLK domain
+//
+
+    always @(posedge CLKDIV_IN or posedge RST_IN) begin
+       if(RST_IN) begin
+          VALID_OUT  = 0;
+          INCDEC_OUT = 0;
+       end
+       else if (CE0_IN) begin
+          if (gvalid) VALID_OUT  = valid_capture;
+          INCDEC_OUT = incdec_capture;
+       end
+    end
+    endgenerate
+
+// ==============
+//  Output MUXES
+// ==============
+    always @(qs[3] or qc[3] or qt[3] or qg[3])
+       if (qout_en[3] == 1'b0) Q4_OUT = 1'b0;
+       else
+       case(qmuxSel_int)
+          2'b00:  Q4_OUT = qs[3];
+          2'b01:  Q4_OUT = qc[3];
+          2'b10:  Q4_OUT = qt[3];
+          2'b11:  Q4_OUT = qg[3];
+          default Q4_OUT = qs[3];
+       endcase
+
+    always @(qs[2] or qc[2] or qt[2] or qg[2])
+       if (qout_en[2] == 1'b0) Q3_OUT = 1'b0;
+       else
+       case(qmuxSel_int)
+          2'b00:  Q3_OUT = qs[2];
+          2'b01:  Q3_OUT = qc[2];
+          2'b10:  Q3_OUT = qt[2];
+          2'b11:  Q3_OUT = qg[2];
+          default Q3_OUT = qs[2];
+       endcase
+
+    always @(qs[1] or qc[1] or qt[1] or qg[1])
+       if (qout_en[1] == 1'b0) Q2_OUT = 1'b0;
+       else
+       case(qmuxSel_int)
+          2'b00:  Q2_OUT = qs[1];
+          2'b01:  Q2_OUT = qc[1];
+          2'b10:  Q2_OUT = qt[1];
+          2'b11:  Q2_OUT = qg[1];
+          default Q2_OUT = qs[1];
+       endcase
+
+    always @(qs[0] or qc[0] or qt[0] or qg[0])
+       if (qout_en[0] == 1'b0) Q1_OUT = 1'b0;
+       else
+       case(qmuxSel_int)
+          2'b00:  Q1_OUT = qs[0];
+          2'b01:  Q1_OUT = qc[0];
+          2'b10:  Q1_OUT = qt[0];
+          2'b11:  Q1_OUT = qg[0];
+          default Q1_OUT = qs[0];
+       endcase
+
+   /* verilator lint_on WIDTH */
 endmodule // ISERDES2

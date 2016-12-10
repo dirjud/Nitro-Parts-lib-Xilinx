@@ -465,7 +465,13 @@ module OSERDES2 (
 //        end
 //    endgenerate
 //    assign clk_int = clk0_int | clk1_int;
-   assign clk_int = CLK0_INDELAY;
+   parameter PLL_MULT = DATA_RATE_OQ == "DDR" ? 2 : 1;
+   PLL_sim PLL_sim(.input_clk(CLK0_INDELAY),
+		   .output_clk(clk_int),
+		   .pll_mult(PLL_MULT),
+		   .pll_div(1),
+		   .locked(),
+		   .debug(0));
    
 //
 // =====================
