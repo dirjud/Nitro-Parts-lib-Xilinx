@@ -1,5 +1,8 @@
 module ODDR2 (Q, C0, C1, CE, D0, D1, R, S);
-    
+
+   parameter DDR_ALIGNMENT = 0;  // unused
+   parameter SRTYPE = 0;         // unused
+
    output reg Q;
 
    input      C0;
